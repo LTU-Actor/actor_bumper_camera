@@ -1,0 +1,19 @@
+<launch>
+
+    <group ns="bumper_camera">
+
+        <node name="cam_pub" pkg="simple_camera_publisher" type="cam_pub" respawn="true"
+        respawn_delay="10"
+        output="screen">
+        <!-- Use device path from /dev/v4l/by-id/ -->
+        <param name="source" type="string"
+            value="" />
+        </node>
+
+        <node name="bumper_camera" pkg="actor_bumper_camera" type="bumper_camera.py"/>
+
+    </group>
+
+    <node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_console" args="-t" />
+
+</launch>
