@@ -20,7 +20,7 @@ def dyn_rcfg_cb(config, level):
 
     return config
 
-# image callback 
+# image callback
 def image_cb(ros_image):
     global bridge, thresh, min_white_pixels, debug
     try:
@@ -28,7 +28,9 @@ def image_cb(ros_image):
     except CvBridgeError as e:
         print(e)
         return
+    # (rows, cols, channels) = cv_image.shape
     
+    # cv_image = cv_image[0:cols, int(rows/2):rows]
     # convert to binary
     gray_image = cv.cvtColor(cv_image, cv.COLOR_BGR2GRAY)
     ret,bw_image = cv.threshold(gray_image, thresh, 255, cv.THRESH_BINARY)
