@@ -5,7 +5,7 @@ import rospy
 from cv_bridge import CvBridge, CvBridgeError
 from dynamic_reconfigure.server import Server
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Int32, Float64
 
 from actor_bumper_camera.cfg import BumperCamConfig
 
@@ -14,17 +14,13 @@ bridge = CvBridge()
 
 # dynamic reconfigure callback
 def dyn_rcfg_cb(config, level):
-    global min_white_pixels, debug, thresh, blur_factor, use_blob, crop
+    global debug, thresh, blur_factor, use_blob, crop
 
-    min_white_pixels = (
-        config.pixel_count
-    )  # minimum number of white pixels to trigger detection
     thresh = config.thresh  # binary thrsholding value
 
     blur_factor = config.blur_factor  # median blur level
-    use_blob = config.use_blob
 
-    crop = (config.crop_l, config.crop_r, config.crop_t, config.crop_b)
+    crop = (config.crop_t, config.crop_b, config.crop_l, config.crop_r)
 
     debug = config.debug  # whether to publish a debug image
 
@@ -33,7 +29,13 @@ def dyn_rcfg_cb(config, level):
 
 # image callback
 def image_cb(ros_image):
-    global bridge, thresh, min_white_pixels, debug
+    global bridge, thresh, debug
+
+    pixel_msg = Int32()
+    percent_msg = Float64()
+    blob_msg = Int32()
+    area_msg = Int32()
+
     try:
         cv_image = bridge.imgmsg_to_cv2(ros_image, "bgr8")
     except CvBridgeError as e:
@@ -42,11 +44,13 @@ def image_cb(ros_image):
 
     (rows, cols, channels) = cv_image.shape
 
-    #crop image down
+    # crop image down
     cv_image = cv_image[
-        int(cols * crop[0]) : int(cols * crop[1]),
-        int(rows * crop[2]) : int(rows * crop[3]),
+        int(rows * crop[0]) : int(rows * crop[1]),
+        int(cols * crop[2]) : int(cols * crop[3]),
     ]
+
+    (rows, cols, channels) = cv_image.shape
 
     # add median blur
     if not blur_factor == 0:
@@ -55,34 +59,38 @@ def image_cb(ros_image):
     # convert to binary
     gray_image = cv.cvtColor(cv_image, cv.COLOR_BGR2GRAY)
     ret, bw_image = cv.threshold(gray_image, thresh, 255, cv.THRESH_BINARY)
-    line_msg = Bool()
-    line_msg.data = False
 
-    if use_blob:
-        #find contours
-        contours, hierarchy = cv.findContours(
-            bw_image, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE
-        )
+    pixel_count = cv.countNonZero(bw_image)
 
-        # find the largest contour
-        max_area = 0
-        for c in contours:
-            area = cv.contourArea(c)
-            if area > max_area:
-                max_area = area
-                max_c = c
+    pixel_msg.data = pixel_count
+    percent_msg.data = float(pixel_count) / float(rows * cols)
 
-        if contours:
-            cv.drawContours(cv_image, max_c, -1, (0, 0, 255), 10)
-            if max_area > min_white_pixels:
-                line_msg.data = True
+    # find contours
+    contours, hierarchy = cv.findContours(
+        bw_image, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE
+    )
+
+    # find the largest contour
+    max_area = 0
+    cy = 0
+    for c in contours:
+        M = cv.moments(c)
+        if M["m00"] != 0:
+            cy = int(M["m01"] / M["m00"])
+        area = cv.contourArea(c)
+        if area > max_area:
+            max_area = area
+            max_c = c
+
+    if contours:
+        cv.drawContours(cv_image, max_c, -1, (0, 0, 255), 10)
+
+        # NOTE: Added this to make so that as you approach the line, the output data gets smaller
+        blob_msg.data = rows - cy
+        area_msg.data = max_area
     else:
-        if (
-            cv.countNonZero(bw_image) > min_white_pixels
-        ):  # determine number of white pixels
-            line_msg.data = True
-
-    line_pub.publish(line_msg)
+        area_msg.data = 0
+        blob_msg.data = 10000
 
     if debug:
         # display the binary image if debug is enabled
@@ -94,11 +102,20 @@ def image_cb(ros_image):
         debug_msg = bridge.cv2_to_imgmsg(cv_image, encoding="rgb8")
         debug_pub.publish(debug_msg)
 
+    pixel_pub.publish(pixel_msg)
+    percent_pub.publish(percent_msg)
+    blob_pub.publish(blob_msg)
+    area_pub.publish(area_msg)
+
 
 if __name__ == "__main__":
     rospy.init_node("bumper_camera", anonymous=True)
 
-    line_pub = rospy.Publisher("bumper_line_detected", Bool, queue_size=1)
+    pixel_pub = rospy.Publisher("pixel_count", Int32, queue_size=1)
+    percent_pub = rospy.Publisher("white_percent", Float64, queue_size=1)
+    blob_pub = rospy.Publisher("blob_pos", Int32, queue_size=1)
+    area_pub = rospy.Publisher("blob_area", Int32, queue_size=1)
+
     thresh_pub = rospy.Publisher("bumper_thresh", Image, queue_size=1)
     debug_pub = rospy.Publisher("bumper_debug", Image, queue_size=1)
 
