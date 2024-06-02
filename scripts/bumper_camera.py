@@ -33,7 +33,7 @@ def image_cb(ros_image):
 
     pixel_msg = Int32()
     percent_msg = Float64()
-    blob_msg = Int32()
+    blob_msg = Float64()
     area_msg = Int32()
 
     try:
@@ -43,11 +43,13 @@ def image_cb(ros_image):
         return
 
     (rows, cols, channels) = cv_image.shape
+    
+    cv_image = cv.rotate(cv_image, cv.ROTATE_90_CLOCKWISE)
 
     # crop image down
     cv_image = cv_image[
-        int(rows * crop[0]) : int(rows * crop[1]),
-        int(cols * crop[2]) : int(cols * crop[3]),
+        int(cols * crop[0]) : int(cols * crop[1]),
+        int(rows * crop[2]) : int(rows * crop[3]),
     ]
 
     (rows, cols, channels) = cv_image.shape
@@ -72,6 +74,7 @@ def image_cb(ros_image):
 
     # find the largest contour
     max_area = 0
+    max_c = 0
     cy = 0
     for c in contours:
         M = cv.moments(c)
@@ -86,7 +89,7 @@ def image_cb(ros_image):
         cv.drawContours(cv_image, max_c, -1, (0, 0, 255), 10)
 
         # NOTE: Added this to make so that as you approach the line, the output data gets smaller
-        blob_msg.data = rows - cy
+        blob_msg.data = float(rows - cy) / rows
         area_msg.data = max_area
     else:
         area_msg.data = 0
@@ -99,6 +102,7 @@ def image_cb(ros_image):
         thresh_pub.publish(thresh_msg)
 
         # display the original image (with contours)
+        cv_image = cv.cvtColor(cv_image, cv.COLOR_BGR2RGB)
         debug_msg = bridge.cv2_to_imgmsg(cv_image, encoding="rgb8")
         debug_pub.publish(debug_msg)
 
@@ -113,7 +117,7 @@ if __name__ == "__main__":
 
     pixel_pub = rospy.Publisher("pixel_count", Int32, queue_size=1)
     percent_pub = rospy.Publisher("white_percent", Float64, queue_size=1)
-    blob_pub = rospy.Publisher("blob_pos", Int32, queue_size=1)
+    blob_pub = rospy.Publisher("blob_pos", Float64, queue_size=1)
     area_pub = rospy.Publisher("blob_area", Int32, queue_size=1)
 
     thresh_pub = rospy.Publisher("bumper_thresh", Image, queue_size=1)
